@@ -1,0 +1,1452 @@
+﻿@using Newtonsoft.Json
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Կարմիր-սև ծառերի գրաֆիկական իրականացում</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        .controls form {
+            display: inline-table;
+            margin: 0 -5px;
+        }
+        .controls input {
+            padding: 5px;
+            font-size: 16px;
+        }
+        .controls button {
+            padding: 5px 10px;
+            font-size: 16px;
+            margin: 0px;
+            cursor: pointer;
+        }
+        #treeContainer {
+            width: 100%;
+            height: 80vh;
+            overflow: auto;
+        }
+        .link {
+            fill: none;
+            stroke: black;
+            stroke-width: 2.2px;
+        }
+        .node circle {
+            stroke: black;
+            stroke-width: 2px;
+        }
+        .node text {
+            font-size: 16px;
+            font-weight: bold;
+            fill: white;
+        }
+        .ButtonRed {
+            background: red;
+            border: none;
+            border-left: 1px solid rgba(255,255,255,0.3);
+            margin: 0;
+            padding: 8px 18px;
+            font-size: 16px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+            height: 40px;
+            box-sizing: border-box;
+        }
+        .ButtonRed:hover {
+            background: darkred;
+        }
+        .buttonBlackLeft {
+            background: black;
+            border: none;
+            border-left: 1px solid rgba(255,255,255,0.3);
+            margin: 0;
+            padding: 8px 18px;
+            font-size: 16px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+            height: 40px;
+            box-sizing: border-box;
+        }
+        .buttonBlackLeft:hover {
+            background: darkred;
+        }
+        .buttonBlackRight {
+            background: black;
+            border: none;
+            border-left: 1px solid rgba(255,255,255,0.3);
+            margin: 0;
+            padding: 8px 18px;
+            font-size: 16px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+            height: 40px;
+            border-radius: 0 20px 20px 0px;
+            box-sizing: border-box;
+        }
+        .buttonBlackRight:hover {
+            background: darkred;
+        }
+        .input {
+            border: 2px solid red;
+            border-right: none;
+            border-radius: 20px 0 0 20px;
+            padding: 8px 18px;
+            font-size: 16px;
+            outline: none;
+            text-align: center;
+            margin: 0;
+            height: 40px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+<div style="display: flex; align-items: center; justify-content: center;">
+    <img src="~/images/favicon.png" alt="My Image" style="width: 70px; height: 70px; margin-right: 10px;" />
+    <h3>Կարմիր-սև ծառերի գրաֆիկական իրականացում</h3>
+</div>
+<link rel="icon" type="image/png" href="/images/favicon.png">
+<br/>
+<div class="controls">
+    <form asp-action="Update" method="post">
+        <input type="text" name="Value" class="input" maxlength="5" required  placeholder="Մուտք"/>
+        <button type="submit" class="ButtonRed"  name="action"  value="insert">Ավելացնել</button>
+        <button type="submit" class="ButtonRed" name="action" value="delete">Ջնջել</button>
+        <button type="submit" class="ButtonRed" name="action" value="search" onclick="setBoolean()">Որոնել</button>
+    </form>
+    <form asp-action="ManageTree" method="post">
+        <button type="submit" name="action" value="info" class="ButtonRed">Ինֆորմացիա</button>
+        <button type="submit" name="action" value="deleteall"class="ButtonRed">Ջնջել բոլորը</button>
+    </form>
+    <form>
+        <button type="button" class="ButtonRed" onclick="playInsertAnimation()">Ցուցադրել քայլերը</button>
+    </form>
+    <form id="importForm" asp-action="HandleFiles" method="post" enctype="multipart/form-data">
+        <input type="file" id="fileUpload" name="file" accept=".json" style="display: none;" onchange="submitForm('import')"/>
+        <label for="fileUpload" class="buttonBlackLeft">Ներմուծել</label>
+        <input type="hidden" id="funcInput" name="func"/>
+        <button type="submit" name="func" value="export" class="buttonBlackRight" onclick="submitExportForm()">Պահպանել</button>
+    </form>
+
+    <script>
+        function submitForm(func) {
+            document.getElementById('funcInput').value = func;
+            document.getElementById('importForm').submit();
+        }
+        function submitExportForm() {
+            document.getElementById('funcInput').value = "export";
+        }
+    </script>
+
+    <br/><br/>
+    <h4>@Html.TempData["Message"]</h4>
+</div>
+
+<div id="treeContainer">
+    <svg id="treeSVG"></svg>
+</div>
+<script src="~/RedBlackTree2/wwwroot/js/site.js"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var treeData = @Html.Raw(JsonConvert.SerializeObject(Model.Root));
+        var InputValue = @Html.Raw(JsonConvert.SerializeObject(Model.InputValue));
+        var isSearchClicked = @Html.Raw(JsonConvert.SerializeObject(Model.isSearchClicked));
+        var Quantity = @Html.Raw(JsonConvert.SerializeObject(Model.Quantity));
+        var insertSteps = @Html.Raw(JsonConvert.SerializeObject(Model.InsertSteps));
+        if (!treeData) {
+            console.error("Tree data is empty");
+            return;
+        }
+
+        var root = d3.hierarchy(treeData, function(d) {
+            return [d.Left, d.Right].filter(child => child !== null && child.Value !== null)
+        });
+        var treeLayout = d3.tree().nodeSize([100, 150]);
+        treeLayout(root);
+        fixSingleChildPositions(root);
+        var container = document.getElementById("treeContainer");
+        var containerWidth = container.clientWidth;
+        var containerHeight = container.clientHeight;
+        var svg = d3.select("#treeSVG")
+            .attr("width", containerWidth)
+            .attr("height", containerHeight);
+
+        svg.selectAll("*").remove();
+        var g = svg.append("g");
+
+        var linkGenerator = d3.linkVertical()
+            .x(d => d.x)
+            .y(d => d.y);
+
+        g.selectAll(".link")
+            .data(root.links())
+            .enter()
+            .append("path")
+            .attr("class", "link")
+            .attr("d", linkGenerator);
+        var nodes = g.selectAll(".node")
+            .data(root.descendants())
+            .enter()
+            .append("g")
+            .attr("class", "node")
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        nodes.append("circle")
+            .attr("r", 24)
+            .style("fill", d => d.data.Color === "Red" ? "#ff0000" : "#000000");
+
+        nodes.append("text")
+            .attr("dy", "0.35em")
+            .attr("text-anchor", "middle")
+            .text(d => d.data.Value);
+
+        var zoom = d3.zoom()
+            .scaleExtent([0.1, 3])
+            .on("zoom", function(event) {
+                g.attr("transform", event.transform);
+            });
+        svg.call(zoom);
+        fixTreeCentering();
+        ensureNewNodeCentered();
+        function fixTreeCentering() {
+            var minX = d3.min(root.descendants(), d => d.x);
+            var maxX = d3.max(root.descendants(), d => d.x);
+            var treeWidth = maxX - minX;
+
+            var offsetX = (containerWidth - treeWidth) / 2 - minX;
+            g.attr("transform", `translate(${offsetX}, 50)`);
+        }
+
+        function ensureNewNodeCentered() {
+            if (isSearchClicked == true && Quantity <= 14) {
+              
+                var node = d3.selectAll(".node")
+                    .filter(d => d.data.Value == InputValue);
+
+                if (!node.empty()) {
+                    highlightNode(node);
+                }
+            } else if((isSearchClicked == true && Quantity > 14) || (isSearchClicked == false && Quantity > 14))
+            {
+                {
+                    if (InputValue === "" || InputValue === undefined) return;
+                    var target = root.descendants().filter(d => d.data.Value == InputValue).pop();
+
+                    if (!target) {
+                        return;
+                    }
+                    var scale = 1;
+                    var tx = containerWidth / 2 - target.x * scale;
+                    var ty = containerHeight / 2 - target.y * scale;
+                    var transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                    svg.transition().duration(750).call(zoom.transform, transform)
+                        .on("end", function () {
+                            if (isSearchClicked == true && Quantity > 14) {
+                                var node = d3.selectAll(".node")
+                                    .filter(d => d.data.Value == InputValue);
+
+                                if (!node.empty()) {
+                                    highlightNode(node);
+                                }
+                            }
+                        });
+                }
+            }
+        }
+        function shiftSubtree(node, dx) {
+            node.x += dx;
+            if (node.children) {
+                node.children.forEach(child => shiftSubtree(child, dx));
+            }
+        }
+        function fixSingleChildPositions(node) {
+            if (node.children && node.children.length === 1) {
+                var child = node.children[0];
+                var offset = 50;
+                if (node.data.Left && node.data.Left.Value === child.data.Value) {
+                    shiftSubtree(child, -offset);
+                } else if (node.data.Right && node.data.Right.Value === child.data.Value) {
+                    shiftSubtree(child, offset);
+                }
+            }
+            if (node.children) {
+                node.children.forEach(fixSingleChildPositions);
+            }
+        }
+
+        function highlightNode(node) {
+            node.select("circle")
+                .transition()
+                .duration(500)
+                .attr("r", 30)
+                .style("fill", "darkred")
+                .transition()
+                .duration(500)
+                .attr("r", 24)
+                .style("fill", d => d.data.Color === "Red" ? "#ff0000" : "#000000");
+        }
+    });
+
+    function playInsertAnimation() {
+        var insertSteps = @Html.Raw(JsonConvert.SerializeObject(Model.InsertSteps));
+        var initialTreeData = @Html.Raw(JsonConvert.SerializeObject(Model.Root));
+        if (!insertSteps || insertSteps.length === 0) {
+            alert("Քայլեր չկան ցուցադրելու համար։");
+            return;
+        }
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => btn.disabled = true);
+        const statusPanel = document.createElement("div");
+        statusPanel.id = "animationStatus";
+        statusPanel.style.position = "fixed";
+        statusPanel.style.top = "20px";
+        statusPanel.style.left = "50%";
+        statusPanel.style.transform = "translateX(-50%)";
+        statusPanel.style.background = "rgba(0, 0, 0, 0.8)";
+        statusPanel.style.color = "#ffffff";
+        statusPanel.style.border = "none";
+        statusPanel.style.padding = "20px 30px";
+        statusPanel.style.borderRadius = "16px";
+        statusPanel.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.2)";
+        statusPanel.style.minWidth = "340px";
+        statusPanel.style.maxWidth = "90%";
+        statusPanel.style.zIndex = "1000";
+        statusPanel.style.textAlign = "center";
+        statusPanel.style.fontFamily = "Arial, sans-serif";
+        statusPanel.style.transition = "all 0.3s ease";
+        statusPanel.innerHTML = `
+<div style="font-size: 22px; font-weight: bold; color: white; margin-bottom: 10px;">
+    Քայլ <span id="stepCounter">1</span> / ${insertSteps.length}
+</div>
+<div id="stepDescription" style="font-size: 17px; color: white; margin-bottom: 20px;"></div>
+<div style="display: flex; justify-content: center; gap: 12px;">
+    <button id="prevStepBtn" class="modern-btn">&#x25C0; Նախորդ</button>
+    <button id="pauseBtn" class="modern-btn">Ավտոմատ ցուցադրում</button>
+    <button id="nextStepBtn" class="modern-btn">Հաջորդ &#x25B6;</button>
+    <button id="closeBtn" class="modern-btn" style="background: black;">Փակել</button>
+</div>
+`;
+        document.body.appendChild(statusPanel);
+        const style = document.createElement('style');
+        style.innerHTML = `
+  .modern-btn {
+    background: #ff0000;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: bold;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.2s;
+  }
+  .modern-btn:hover {
+    background: #cc0000;
+    transform: translateY(-2px);
+  }
+  .modern-btn:active {
+    background: black;
+    transform: scale(0.98);
+  }
+`;
+        document.head.appendChild(style);
+        let stepIndex = 0;
+        let isPaused = true;
+        let animationTimer = null;
+        let animationInProgress = false;
+        let isRotationSequence = false;
+        var svg = d3.select("#treeSVG");
+        var container = document.getElementById("treeContainer");
+        var containerWidth = container.clientWidth;
+        var containerHeight = container.clientHeight;
+        document.getElementById("prevStepBtn").addEventListener("click", function (event) {
+            if (!isPaused) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
+            stopAutoPlay();
+            if (isRotationSequence && stepIndex > 0) {
+            } else if (stepIndex > 0 && !animationInProgress) {
+                stepIndex--;
+                renderStep(insertSteps[stepIndex]);
+                updateStatusPanel();
+            }
+        });
+
+        document.getElementById("nextStepBtn").addEventListener("click", function (event) {
+            if (!isPaused && !animationTimer) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
+            if (animationInProgress) return;
+
+            if (stepIndex < insertSteps.length - 1) {
+                const currentStep = insertSteps[stepIndex];
+                const nextStepItem = insertSteps[stepIndex + 1];
+
+                if (
+                    (currentStep.Action === "BeforeRotateLeft" && nextStepItem.Action === "AfterRotateLeft") ||
+                    (currentStep.Action === "BeforeRotateRight" && nextStepItem.Action === "AfterRotateRight")
+                ) {
+                    renderRotationAnimation(currentStep, nextStepItem);
+                    stepIndex += 1;
+                } else if (
+                    (currentStep.Action === "BeforeTransplant" && nextStepItem.Action === "AfterTransplant") ||
+                    (currentStep.Action === "BeforeReplaceWithSuccessor" && nextStepItem.Action === "AfterReplaceWithSuccessor")
+                ) {
+                    renderTransplantAnimation(currentStep, nextStepItem);
+                    stepIndex += 1;
+                } else {
+                    stepIndex++;
+                    renderStep(insertSteps[stepIndex]);
+                }
+
+                updateStatusPanel();
+            } else if (stepIndex === insertSteps.length - 1) {
+                stepIndex++;
+                renderStep(insertSteps[stepIndex]);
+                updateStatusPanel();
+            }
+        });
+        document.getElementById("pauseBtn").addEventListener("click", function() {
+            isPaused = !isPaused;
+            this.textContent = isPaused ? "Ավտոմատ ցուցադրում" : "Դադար";
+            if (!isPaused) {
+                startAutoPlay();
+            } else {
+                stopAutoPlay();
+            }
+        });
+        document.getElementById("closeBtn").addEventListener("click", function() {
+            cleanup();
+            renderInitialTree(initialTreeData);
+        });
+        function cleanup() {
+            const statusPanel = document.getElementById("animationStatus");
+            if (statusPanel) document.body.removeChild(statusPanel);
+            buttons.forEach(btn => btn.disabled = false);
+            if (animationTimer) clearTimeout(animationTimer);
+        }
+
+
+        function renderInitialTree(treeData) {
+            svg.selectAll("*").remove();
+
+            var root = d3.hierarchy(treeData, function(d) {
+                return [d.Left, d.Right].filter(child => child !== null && child.Value !== null);
+            });
+
+            var treeLayout = d3.tree().nodeSize([100, 150]);
+            treeLayout(root);
+
+            fixSingleChildPositions(root);
+
+            var g = svg.append("g");
+
+            var linkGenerator = d3.linkVertical()
+                .x(d => d.x)
+                .y(d => d.y);
+            g.selectAll(".link")
+                .data(root.links())
+                .enter()
+                .append("path")
+                .attr("class", "link")
+                .attr("d", linkGenerator);
+
+            var nodes = g.selectAll(".node")
+                .data(root.descendants())
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+            nodes.append("circle")
+                .attr("r", 24)
+                .style("fill", d => d.data.Color === "Red" ? "#ff0000" : "#000000");
+            nodes.append("text")
+                .attr("dy", "0.35em")
+                .attr("text-anchor", "middle")
+                .text(d => d.data.Value);
+
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 3])
+                .on("zoom", function(event) {
+                    g.attr("transform", event.transform);
+                });
+            svg.call(zoom);
+            const Quantity = @Html.Raw(JsonConvert.SerializeObject(Model.Quantity));
+            const InputValue = @Html.Raw(JsonConvert.SerializeObject(Model.InputValue));
+            const isSearchClicked = @Html.Raw(JsonConvert.SerializeObject(Model.isSearchClicked));
+
+            if (Quantity < 14) {
+                var minX = d3.min(root.descendants(), d => d.x);
+                var maxX = d3.max(root.descendants(), d => d.x);
+                var treeWidth = maxX - minX;
+
+                var offsetX = (containerWidth - treeWidth) / 2 - minX;
+                g.attr("transform", `translate(${offsetX}, 50)`);
+            } else {
+                // Քանակը մեծ է կամ հավասար 14 → կենտրոնացնել մուտքագրված հանգույցի վրա
+                if (InputValue && InputValue !== "") {
+                    var target = root.descendants().find(d => d.data.Value == InputValue);
+                    
+                    if (target) {
+                        var scale = 1;
+                        var tx = containerWidth / 2 - target.x * scale;
+                        var ty = containerHeight / 3 - target.y * scale;
+                        var transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                        svg.transition().duration(750).call(zoom.transform, transform)
+                            .on("end", function () {
+                                if (isSearchClicked == true && Quantity > 14) {
+                                    var node = d3.selectAll(".node")
+                                        .filter(d => d.data.Value == InputValue);
+
+                                    if (!node.empty()) {
+                                        highlightNode(node);
+                                    }
+                                }
+                            });
+                    }
+                }
+            }
+        }
+
+            function fitTreeToView(root, svg, containerWidth, containerHeight, zoom) {
+                if (!root.descendants().length) return;
+
+                var minX = d3.min(root.descendants(), d => d.x);
+                var maxX = d3.max(root.descendants(), d => d.x);
+                var minY = d3.min(root.descendants(), d => d.y);
+                var maxY = d3.max(root.descendants(), d => d.y);
+                var treeWidth = maxX - minX;
+                var treeHeight = maxY - minY;
+
+                // Calculate proper scale to fit the entire tree
+                var scale = Math.min(
+                    0.9 * containerWidth / treeWidth,
+                    0.8 * containerHeight / treeHeight
+                );
+                scale = Math.min(scale, 0.9);
+                var midX = (minX + maxX) / 2;
+                var midY = (minY + maxY) / 2;
+
+                var tx = containerWidth / 2 - midX * scale;
+                var ty = containerHeight / 2 - midY * scale;
+
+                svg.transition()
+                    .duration(750)
+                    .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+            }
+            function highlightNode(node) {
+                node.select("circle")
+                    .transition()
+                    .duration(500)
+                    .attr("r", 30)
+                    .style("fill", "darkred")
+                    .transition()
+                    .duration(500)
+                    .attr("r", 24)
+                    .style("fill", d => d.data.Color === "Red" ? "#ff0000" : "#000000");
+            }
+        function startAutoPlay() {
+            if (animationTimer) {
+                clearInterval(animationTimer);
+            }
+            animationTimer = setInterval(() => {
+                if (!isPaused) {
+                    document.getElementById("nextStepBtn").click();
+                }
+            }, 500);
+        }
+        function stopAutoPlay() {
+            if (animationTimer) {
+                clearInterval(animationTimer);
+                animationTimer = null;
+            }
+        }
+        function updateStatusPanel() {
+            if (stepIndex >= insertSteps.length) {
+                stepIndex = insertSteps.length - 1;
+            }
+            document.getElementById("stepCounter").textContent = (stepIndex + 1);
+            const step = insertSteps[stepIndex];
+            let description = "";
+            switch (step.Action) {
+                case "AddNode":
+                    description = `Ավելացվում է նոր հանգույց, Հանգույցի արժեքը՝ ${step.NodeValue}։`;
+                    break;
+                case "BeforeRotateLeft":
+                    description = `Նախապատրաստում ձախ պտույտի ${step.NodeValue}- ի շուրջ։`;
+                    break;
+                case "BeforeRotateRight":
+                    description = `Նախապատրաստում աջ պտույտի ${step.NodeValue}- ի շուրջ։`;
+                    break;
+                case "AfterRotateRight":
+                    description = `Աջ պտույտի ավարտ։`;
+                    break;
+                case "AfterRotateLeft":
+                    description = `Ձախ պտույտի ավարտ։`;
+                    break;
+                case "ColorChange":
+                    description = `${step.NodeValue}- ի գույնը փոխվում է ${getColorName(step.Color)}։`;
+                    break;
+                case "RecolorTree":
+                    description = "Վերագունավորվում է ծառը";
+                    break;
+                case "BeginDelete":
+                    description = `Սկսվում է ${step.NodeValue}- ի ջնջումը։`;
+                    break;
+                case "NodeToDelete":
+                    description = `Գտնվել է ջնջվող հանգույցը, հանգույցի արժեք-${step.NodeValue}։`;
+                    break;
+                case "DeleteCaseLeftNil":
+                    description = `Հանգույցի ձախ երեխան NIL է։ ${step.NodeValue} արժեքի հանգույցը փոխարինվում է իր աջ զավակի հետ`;
+                    break;
+                case "DeleteCaseRightNil":
+                    description = `Հանգույցի աջ երեխան NIL է։ ${step.NodeValue} արժեքի հանգույցը փոխարինվում է իր ձախ զավակի հետ`;
+                    break;
+                case "FindSuccessor":
+                    description = `Գտնվել է աջ ենթածառի ամենափոքր արժեք ունեցող հանգույցը։ Նրա արժեքն է ${step.NodeValue}։ `;
+                    break;
+                case "SuccessorIsDirectChild":
+                    description = `Հաջորդողը ${step.NodeValue} ուղղակի ներքին տերև է։`;
+                    break;
+                case "BeforeTransplantSuccessor":
+                    description = `Հաջորդող ${step.NodeValue}-ի փոխարինումը սկսվում է`;
+                    break;
+                case "AfterTransplantSuccessor":
+                    description = `Հաջորդող ${step.NodeValue}-ի փոխարինումը ավարտվել է`;
+                    break;
+                case "BeforeReplaceWithSuccessor":
+                    description = `Հանգույցը փոխարինվում է իրենից մեծերից ամենափոքրով։ Նրա արժեքն է ${step.NodeValue}։`;
+                    break;
+                case "AfterReplaceWithSuccessor":
+                    description = `Հանգույցը փոխարինվում է իրենից մեծերից ամենափոքրով։ Նրա արժեքն է ${step.NodeValue}։`;
+                    break;
+                case "FindMinimumStart":
+                    description = `Ջնջվող հանգույցն ունի երկու երեխա։ Անհրաժեշտ է գտնել աջ ենթածառի ամենափոքր արժեք ունեցող հանգույցը։`;
+                    break;
+                case "BeginFixDelete":
+                    description = `Սկսվում է ծառի վերականգնումը ${step.NodeValue} հանգույցի համար`;
+                    break;
+                case "FixDeleteCase1":
+                case "FixDeleteCase2":
+                case "FixDeleteCase3":
+                case "FixDeleteCase4":
+                case "FixDeleteCase5":
+                case "FixDeleteCase6":
+                case "FixDeleteCase7":
+                case "FixDeleteCase8":
+                    description = `Վերականգնման քայլ ${step.NodeValue} հանգույցի համար`;
+                    break;
+                case "FixDeleteComplete":
+                    description = `Վերականգնումը ավարտվել է`;
+                    break;
+                case "DeleteComplete":
+                    description = `${step.NodeValue}-ի ջնջումը ավարտվել է`;
+                    break;
+                case "DeleteFailed":
+                    description = `Ջնջման համար հանգույցը չի գտնվել `;
+                    break;
+                case "BeginSearch":
+                    description = `Սկսվում է ${step.NodeValue} արժեքի որոնումը`;
+                    break;
+                case "SearchStep":
+                    description = `Համեմատություն ${step.NodeValue} արժեքի հետ`;
+                    break;
+                case "SearchGoLeft":
+                    description = `Անցում ձախ՝ ${step.NodeValue}- ից`;
+                    break;
+                case "SearchGoRight":
+                    description = `Անցում աջ՝ ${step.NodeValue}- ից`;
+                    break;
+                case "SearchFound":
+                    description = `Հանգույցը գտնվել է։`;
+                    break;
+                case "SearchNotFound":
+                    description = `հանգույցը չի գտնվել`;
+                    break;
+                default:
+                    description = `Վերջնական արդյունք ${step.Action}`;
+            }
+
+            document.getElementById("stepDescription").textContent = description;
+        }
+        renderStep(insertSteps[0]);
+        updateStatusPanel();
+
+        function getColorName(color) {
+            return color === "Red" ? "կարմիր" : "սև";
+        }
+        function createUnifiedHierarchy(beforeState, afterState) {
+            const beforeRoot = d3.hierarchy(beforeState, d =>
+                [d.Left, d.Right].filter(child => child !== null && child.Value !== null)
+            );
+
+            const afterRoot = d3.hierarchy(afterState, d =>
+                [d.Left, d.Right].filter(child => child !== null && child.Value !== null)
+            );
+
+            const treeLayout = d3.tree().nodeSize([100, 150]);
+            treeLayout(beforeRoot);
+            treeLayout(afterRoot);
+            fixSingleChildPositions(beforeRoot);
+            fixSingleChildPositions(afterRoot);
+            const beforeMap = {};
+            beforeRoot.descendants().forEach(node => {
+                beforeMap[node.data.NodeId] = {
+                    x: node.x,
+                    y: node.y,
+                    node: node,
+                    data: node.data
+                };
+            });
+
+            const afterMap = {};
+            afterRoot.descendants().forEach(node => {
+                afterMap[node.data.NodeId] = {
+                    x: node.x,
+                    y: node.y,
+                    node: node,
+                    data: node.data
+                };
+            });
+
+            const allNodes = {};
+            const allNodeIds = new Set([
+                ...Object.keys(beforeMap),
+                ...Object.keys(afterMap)
+            ]);
+            allNodeIds.forEach(id => {
+                const beforeInfo = beforeMap[id];
+                const afterInfo = afterMap[id];
+                if (beforeInfo && afterInfo) {
+                    allNodes[id] = {
+                        start: { x: beforeInfo.x, y: beforeInfo.y },
+                        end: { x: afterInfo.x, y: afterInfo.y },
+                        current: { x: beforeInfo.x, y: beforeInfo.y },
+                        data: beforeInfo.data,
+                        exists: true,
+                        opacity: 1
+                    };
+                } else if (beforeInfo) {
+                    allNodes[id] = {
+                        start: { x: beforeInfo.x, y: beforeInfo.y },
+                        end: { x: beforeInfo.x, y: beforeInfo.y },
+                        current: { x: beforeInfo.x, y: beforeInfo.y },
+                        data: beforeInfo.data,
+                        existsInBefore: true,
+                        opacity: 1
+                    };
+                } else if (afterInfo) {
+                    allNodes[id] = {
+                        start: { x: afterInfo.x, y: afterInfo.y },
+                        end: { x: afterInfo.x, y: afterInfo.y },
+                        current: { x: afterInfo.x, y: afterInfo.y },
+                        data: afterInfo.data,
+                        existsInAfter: true,
+                        opacity: 0
+                    };
+                }
+            });
+            return {
+                allNodes,
+                beforeRoot,
+                afterRoot,
+                beforeMap,
+                afterMap
+            };
+        }
+        function extractRelationships(treeState) {
+            const relationships = [];
+
+            function traverse(node) {
+                if (!node || node.Value === null) return;
+
+                if (node.Left && node.Left.Value !== null) {
+                    relationships.push({
+                        parent: node.NodeId,
+                        child: node.Left.NodeId,
+                        isLeft: true
+                    });
+                    traverse(node.Left);
+                }
+
+                if (node.Right && node.Right.Value !== null) {
+                    relationships.push({
+                        parent: node.NodeId,
+                        child: node.Right.NodeId,
+                        isLeft: false
+                    });
+                    traverse(node.Right);
+                }
+            }
+
+            traverse(treeState);
+            return relationships;
+        }
+        function renderTransplantAnimation(currentStep, nextStep) {
+            animationInProgress = true;
+
+            svg.selectAll("*").remove();
+
+            const {
+                allNodes,
+                beforeRoot,
+                afterRoot,
+                beforeMap,
+                afterMap
+            } = createUnifiedHierarchy(currentStep.TreeState, nextStep.TreeState);
+
+            const beforeRelationships = extractRelationships(currentStep.TreeState);
+            const afterRelationships = extractRelationships(nextStep.TreeState);
+
+            const g = svg.append("g");
+
+            const beforeMinX = d3.min(beforeRoot.descendants(), d => d.x);
+            const beforeMaxX = d3.max(beforeRoot.descendants(), d => d.x);
+            const afterMinX = d3.min(afterRoot.descendants(), d => d.x);
+            const afterMaxX = d3.max(afterRoot.descendants(), d => d.x);
+            const minX = Math.min(beforeMinX, afterMinX);
+            const maxX = Math.max(beforeMaxX, afterMaxX);
+            const treeWidth = maxX - minX;
+            const offsetX = (containerWidth - treeWidth) / 2 - minX;
+            g.attr("transform", `translate(${offsetX}, 50)`);
+
+            const linksGroup = g.append("g").attr("class", "links-group");
+            const nodesGroup = g.append("g").attr("class", "nodes-group");
+
+            function createLinks(progress) {
+                linksGroup.selectAll(".link").remove();
+                let currentLinks = [];
+                if (progress < 0.5) {
+                    beforeRelationships.forEach(rel => {
+                        if (allNodes[rel.parent] && allNodes[rel.child]) {
+                            const isHighlighted = (
+                                rel.parent === currentStep.NodeId ||
+                                rel.child === currentStep.NodeId ||
+                                (currentStep.SuccessorId && (rel.parent === currentStep.SuccessorId || rel.child === currentStep.SuccessorId))
+                            );
+
+                            currentLinks.push({
+                                source: {
+                                    x: allNodes[rel.parent].current.x,
+                                    y: allNodes[rel.parent].current.y
+                                },
+                                target: {
+                                    x: allNodes[rel.child].current.x,
+                                    y: allNodes[rel.child].current.y
+                                },
+                                highlighted: isHighlighted,
+                                opacity: allNodes[rel.parent].opacity * allNodes[rel.child].opacity
+                            });
+                        }
+                    });
+                } else {
+                    afterRelationships.forEach(rel => {
+                        if (allNodes[rel.parent] && allNodes[rel.child]) {
+                            const isHighlighted = (
+                                rel.parent === nextStep.NodeId ||
+                                rel.child === nextStep.NodeId ||
+                                (nextStep.SuccessorId && (rel.parent === nextStep.SuccessorId || rel.child === nextStep.SuccessorId))
+                            );
+
+                            currentLinks.push({
+                                source: {
+                                    x: allNodes[rel.parent].current.x,
+                                    y: allNodes[rel.parent].current.y
+                                },
+                                target: {
+                                    x: allNodes[rel.child].current.x,
+                                    y: allNodes[rel.child].current.y
+                                },
+                                highlighted: isHighlighted,
+                                opacity: allNodes[rel.parent].opacity * allNodes[rel.child].opacity
+                            });
+                        }
+                    });
+                }
+
+                const linkGenerator = d3.linkVertical()
+                    .x(d => d.x)
+                    .y(d => d.y);
+
+                linksGroup.selectAll(".link")
+                    .data(currentLinks)
+                    .enter()
+                    .append("path")
+                    .attr("class", "link")
+                    .attr("d", linkGenerator)
+                    .style("fill", "none")
+                    .style("stroke", d => d.highlighted ? "#0066ff" : "black")
+                    .style("stroke-width", d => d.highlighted ? "4px" : "2.2px")
+                    .style("opacity", d => d.opacity);
+            }
+            const importantNodeIds = [currentStep.NodeId, nextStep.NodeId];
+            if (currentStep.SuccessorId) importantNodeIds.push(currentStep.SuccessorId);
+            if (nextStep.SuccessorId) importantNodeIds.push(nextStep.SuccessorId);
+
+            const nodeGroups = nodesGroup.selectAll(".node")
+                .data(Object.entries(allNodes))
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d[1].current.x},${d[1].current.y})`)
+                .style("opacity", d => d[1].opacity);
+            nodeGroups.filter(d => importantNodeIds.includes(d[0]))
+                .append("circle")
+                .attr("r", 30)
+                .style("fill", "none")
+                .style("stroke", "#ffcc00")
+                .style("stroke-width", "3px")
+                .style("opacity", 0.8)
+                .attr("class", "glow-effect");
+
+            nodeGroups.append("circle")
+                .attr("r", d => importantNodeIds.includes(d[0]) ? 26 : 24)
+                .style("fill", d => d[1].data.Color === "Red" ? "#ff0000" : "#000000")
+                .style("stroke", d => importantNodeIds.includes(d[0]) ? "#ffcc00" : "black")
+                .style("stroke-width", d => importantNodeIds.includes(d[0]) ? "3px" : "2px");
+
+            nodeGroups.append("text")
+                .attr("dy", "0.35em")
+                .attr("text-anchor", "middle")
+                .text(d => d[1].data.Value)
+                .style("font-weight", d => importantNodeIds.includes(d[0]) ? "bold" : "normal")
+                .style("font-size", d => importantNodeIds.includes(d[0]) ? "18px" : "16px")
+                .style("fill", "white");
+
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 3])
+                .on("zoom", function(event) {
+                    g.attr("transform", event.transform);
+                });
+            svg.call(zoom);
+
+            const Quantity = @Html.Raw(JsonConvert.SerializeObject(Model.Quantity));
+            if (Quantity > 14) {
+                const targetNodeId = currentStep.NodeId || nextStep.NodeId;
+                if (targetNodeId && allNodes[targetNodeId]) {
+                    const targetNode = allNodes[targetNodeId];
+                    const scale = 0.8;
+                    const tx = containerWidth / 2 - targetNode.current.x * scale;
+                    const ty = containerHeight / 3 - targetNode.current.y * scale;
+                    const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                    svg.call(zoom.transform, transform);
+                }
+            }
+            const duration = 1500;
+            const startTime = Date.now();
+
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easedProgress = d3.easeCubicInOut(progress);
+                Object.entries(allNodes).forEach(([id, nodeInfo]) => {
+                    if (beforeMap[id] && !afterMap[id]) {
+                        nodeInfo.opacity = 1 - easedProgress;
+                    } else if (!beforeMap[id] && afterMap[id]) {
+                        nodeInfo.opacity = easedProgress;
+                    } else {
+                        nodeInfo.opacity = 1;
+                    }
+
+                    if (beforeMap[id] && afterMap[id]) {
+                        nodeInfo.current.x = beforeMap[id].x + (afterMap[id].x - beforeMap[id].x) * easedProgress;
+                        nodeInfo.current.y = beforeMap[id].y + (afterMap[id].y - beforeMap[id].y) * easedProgress;
+                    }
+
+                    const nodeGroup = nodesGroup.selectAll(".node").filter(d => d[0] === id);
+                    nodeGroup
+                        .attr("transform", `translate(${nodeInfo.current.x},${nodeInfo.current.y})`)
+                        .style("opacity", nodeInfo.opacity);
+                });
+                createLinks(easedProgress);
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    animationInProgress = false;
+                    if (!isPaused && stepIndex < insertSteps.length) {
+                        animationTimer = setTimeout(() => {
+                            document.getElementById("nextStepBtn").click();
+                        }, 500);
+                    }
+                    if (Quantity > 14 && nextStep.NodeId) {
+                        const targetNode = allNodes[nextStep.NodeId];
+                        if (targetNode) {
+                            const scale = 0.8;
+                            const tx = containerWidth / 2 - targetNode.current.x * scale;
+                            const ty = containerHeight / 4 - targetNode.current.y * scale;
+                            const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                            svg.transition().duration(500).call(zoom.transform, transform);
+                        }
+                    }
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+        function renderRotationAnimation(currentStep, nextStep) {
+            animationInProgress = true;
+            svg.selectAll("*").remove();
+            const {
+                allNodes,
+                beforeRoot,
+                afterRoot,
+                beforeMap,
+                afterMap
+            } = createUnifiedHierarchy(currentStep.TreeState, nextStep.TreeState);
+            const beforeRelationships = extractRelationships(currentStep.TreeState);
+            const afterRelationships = extractRelationships(nextStep.TreeState);
+            const g = svg.append("g");
+            const beforeMinX = d3.min(beforeRoot.descendants(), d => d.x);
+            const beforeMaxX = d3.max(beforeRoot.descendants(), d => d.x);
+            const afterMinX = d3.min(afterRoot.descendants(), d => d.x);
+            const afterMaxX = d3.max(afterRoot.descendants(), d => d.x);
+            const minX = Math.min(beforeMinX, afterMinX);
+            const maxX = Math.max(beforeMaxX, afterMaxX);
+            const treeWidth = maxX - minX;
+            const offsetX = (containerWidth - treeWidth) / 2 - minX;
+            g.attr("transform", `translate(${offsetX}, 50)`);
+            const linksGroup = g.append("g").attr("class", "links-group");
+            const nodesGroup = g.append("g").attr("class", "nodes-group");
+            function createLinks(progress) {
+                linksGroup.selectAll(".link").remove();
+                let currentLinks = [];
+                const processRelationships = (relationships) => {
+                    relationships.forEach(rel => {
+                        if (allNodes[rel.parent] && allNodes[rel.child]) {
+                            const isHighlighted = (currentStep.Action.includes("Rotate") &&
+                                (rel.parent === currentStep.NodeId || rel.child === currentStep.NodeId));
+
+                            currentLinks.push({
+                                source: {
+                                    x: allNodes[rel.parent].current.x,
+                                    y: allNodes[rel.parent].current.y
+                                },
+                                target: {
+                                    x: allNodes[rel.child].current.x,
+                                    y: allNodes[rel.child].current.y
+                                },
+                                highlighted: isHighlighted,
+                                opacity: allNodes[rel.parent].opacity * allNodes[rel.child].opacity
+                            });
+                        }
+                    });
+                };
+                progress < 0.5 ? processRelationships(beforeRelationships) : processRelationships(afterRelationships);
+                const linkGenerator = d3.linkVertical()
+                    .x(d => d.x)
+                    .y(d => d.y);
+                linksGroup.selectAll(".link")
+                    .data(currentLinks)
+                    .enter()
+                    .append("path")
+                    .attr("class", "link")
+                    .attr("d", linkGenerator)
+                    .style("fill", "none")
+                    .style("stroke", d => d.highlighted ? "#0066ff" : "black")
+                    .style("stroke-width", d => d.highlighted ? "4px" : "2.2px")
+                    .style("opacity", d => d.opacity);
+            }
+            const nodeGroups = nodesGroup.selectAll(".node")
+                .data(Object.entries(allNodes))
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d[1].current.x},${d[1].current.y})`)
+                .style("opacity", d => d[1].opacity);
+            nodeGroups.filter(d =>
+                d[0] == currentStep.NodeId || d[0] == nextStep.NodeId)
+                .append("circle")
+                .attr("r", 30)
+                .style("fill", "none")
+                .style("stroke", "#ffcc00")
+                .style("stroke-width", "3px")
+                .style("opacity", 0.8)
+                .attr("class", "glow-effect");
+            nodeGroups.append("circle")
+                .attr("r", d => (d[0] == currentStep.NodeId || d[0] == nextStep.NodeId) ? 26 : 24)
+                .style("fill", d => d[1].data.Color === "Red" ? "#ff0000" : "#000000")
+                .style("stroke", d => (d[0] == currentStep.NodeId || d[0] == nextStep.NodeId) ? "#ffcc00" : "black")
+                .style("stroke-width", d => (d[0] == currentStep.NodeId || d[0] == nextStep.NodeId) ? "3px" : "2px");
+            nodeGroups.append("text")
+                .attr("dy", "0.35em")
+                .attr("text-anchor", "middle")
+                .text(d => d[1].data.Value)
+                .style("font-weight", d => (d[0] == currentStep.NodeId || d[0] == nextStep.NodeId) ? "bold" : "normal")
+                .style("font-size", d => (d[0] == currentStep.NodeId || d[0] == nextStep.NodeId) ? "18px" : "16px")
+                .style("fill", "white");
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 3])
+                .on("zoom", function(event) {
+                    g.attr("transform", event.transform);
+                });
+            svg.call(zoom);
+            const Quantity = @Html.Raw(JsonConvert.SerializeObject(Model.Quantity));
+            if (Quantity > 14 && currentStep.NodeId) {
+                const targetNode = allNodes[currentStep.NodeId];
+                if (targetNode) {
+                    const scale = 0.8;
+                    const tx = containerWidth / 2 - targetNode.current.x * scale;
+                    const ty = containerHeight / 3 - targetNode.current.y * scale;
+                    const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                    svg.call(zoom.transform, transform);
+                }
+            }
+            const duration = 1500;
+            const startTime = Date.now();
+
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easedProgress = d3.easeCubicInOut(progress);
+
+                Object.entries(allNodes).forEach(([id, nodeInfo]) => {
+                    if (beforeMap[id] && !afterMap[id]) {
+                        nodeInfo.opacity = 1 - easedProgress;
+                    } else if (!beforeMap[id] && afterMap[id]) {
+                        nodeInfo.opacity = easedProgress;
+                    } else {
+                        nodeInfo.opacity = 1;
+                    }
+                    if (beforeMap[id] && afterMap[id]) {
+                        nodeInfo.current.x = beforeMap[id].x + (afterMap[id].x - beforeMap[id].x) * easedProgress;
+                        nodeInfo.current.y = beforeMap[id].y + (afterMap[id].y - beforeMap[id].y) * easedProgress;
+                    }
+
+                    const nodeGroup = nodesGroup.selectAll(".node").filter(d => d[0] === id);
+                    nodeGroup
+                        .attr("transform", `translate(${nodeInfo.current.x},${nodeInfo.current.y})`)
+                        .style("opacity", nodeInfo.opacity);
+                });
+
+                createLinks(easedProgress);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    animationInProgress = false;
+                    isRotationSequence = false; // Rotation finished
+
+                    if (!isPaused && stepIndex < insertSteps.length) {
+                        const nextStep = insertSteps[stepIndex];
+                        if (nextStep?.Action.includes("Rotate")) {
+                            document.getElementById("nextStepBtn").click();
+                        } else {
+                            animationTimer = setTimeout(() => {
+                                document.getElementById("nextStepBtn").click();
+                            }, 500);
+                        }
+                    }
+                    if (Quantity > 14 && nextStep.NodeId) {
+                        const targetNode = allNodes[nextStep.NodeId];
+                        if (targetNode) {
+                            const scale = 0.8;
+                            const tx = containerWidth / 2 - targetNode.current.x * scale;
+                            const ty = containerHeight / 4 - targetNode.current.y * scale;
+                            const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                            svg.transition().duration(500).call(zoom.transform, transform);
+                        }
+                    }
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+        function centerNodeIfNeeded(step, root, svg, containerWidth, containerHeight, zoom) {
+            var Quantity = @Html.Raw(JsonConvert.SerializeObject(Model.Quantity));
+            if (Quantity > 14 && step.NodeId) {
+                var targetNode = root.descendants().find(d => d.data.NodeId == step.NodeId);
+                if (targetNode) {
+                    var scale = 0.8;
+                    var tx = containerWidth / 2 - targetNode.x * scale;
+                    var ty = containerHeight / 4 - targetNode.y * scale;
+                    var transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                    svg.transition()
+                        .duration(750)
+                        .call(zoom.transform, transform);
+                }
+            }
+        }
+        function renderStep(step, forceRender = false) {
+         
+            if (!step.TreeState) {
+                console.error("Քայլը չունի TreeState:", step);
+                return;
+            }
+            const isRotationInProgress = stepIndex > 0 && !forceRender &&
+                ((insertSteps[stepIndex - 1].Action === "BeforeRotateLeft" && step.Action === "AfterRotateLeft") ||
+                    (insertSteps[stepIndex - 1].Action === "BeforeRotateRight" && step.Action === "AfterRotateRight"));
+
+            if (isRotationInProgress) {
+                renderRotationAnimation(insertSteps[stepIndex - 1], step);
+                isRotationSequence = true;
+                return;
+            }
+            svg.selectAll("*").remove();
+            var root = d3.hierarchy(step.TreeState, function(d) {
+                return [d.Left, d.Right].filter(child =>
+                    child !== null && child.Value !== null
+                );
+            });
+            var treeLayout = d3.tree().nodeSize([100, 150]);
+            treeLayout(root);
+            fixSingleChildPositions(root);
+            var g = svg.append("g");
+            var linksGroup = g.append("g").attr("class", "links-group");
+            var nodesGroup = g.append("g").attr("class", "nodes-group");
+            var linkGenerator = d3.linkVertical()
+                .x(d => d.x)
+                .y(d => d.y);
+
+            linksGroup.selectAll(".link")
+                .data(root.links())
+                .enter()
+                .append("path")
+                .attr("class", "link")
+                .attr("d", linkGenerator)
+                .style("stroke-width", d => {
+                    if ((step.Action.includes("Rotate")) &&
+                        (d.source.data.NodeId == step.NodeId ||
+                            d.target.data.NodeId == step.NodeId)) {
+                        return "4px";
+                    }
+                    return "2.2px";
+                })
+                .style("stroke", d => {
+                    if ((step.Action.includes("Rotate")) &&
+                        (d.source.data.NodeId == step.NodeId ||
+                            d.target.data.NodeId == step.NodeId)) {
+                        return "#0066ff";
+                    }
+                    return "black";
+                });
+
+            var nodes = nodesGroup.selectAll(".node")
+                .data(root.descendants())
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+
+            nodes.filter(d => d.data.NodeId == step.NodeId)
+                .append("circle")
+                .attr("r", 30)
+                .style("fill", "none")
+                .style("stroke", "#ffcc00")
+                .style("stroke-width", "3px")
+                .style("opacity", 0.8)
+                .attr("class", "glow-effect");
+
+            nodes.append("circle")
+                .attr("r", d => d.data.NodeId == step.NodeId ? 26 : 24)
+                .style("fill", d => {
+                    if (step.Action === "AddNode" && d.data.NodeId == step.NodeId) {
+                        return "#ff0000";
+                    }
+                    if (step.Action === "ColorChange" && d.data.NodeId == step.NodeId) {
+                        return step.Color === "Red" ? "#ff3333" : "#000000";
+                    }
+                    return d.data.Color === "Red" ? "#ff0000" : "#000000";
+                })
+                .style("stroke", d => d.data.NodeId == step.NodeId ? "#ffcc00" : "black")
+                .style("stroke-width", d => d.data.NodeId == step.NodeId ? "3px" : "2px");
+
+            nodes.append("text")
+                .attr("dy", "0.35em")
+                .attr("text-anchor", "middle")
+                .text(d => d.data.Value)
+                .style("font-weight", d => d.data.NodeId == step.NodeId ? "bold" : "normal")
+                .style("font-size", d => d.data.NodeId == step.NodeId ? "18px" : "16px")
+                .style("fill", "white");
+            var minX = d3.min(root.descendants(), d => d.x);
+            var maxX = d3.max(root.descendants(), d => d.x);
+            var treeWidth = maxX - minX;
+            var offsetX = (containerWidth - treeWidth) / 2 - minX;
+            g.attr("transform", `translate(${offsetX}, 50)`);
+
+            if (step.NodeId) {
+                const targetNode = root.descendants().find(d => d.data.NodeId == step.NodeId);
+                if (targetNode) {
+                    var scale = 1;
+                    var tx = containerWidth / 2 - targetNode.x * scale;
+                    var ty = containerHeight / 3 - targetNode.y * scale;
+                    var transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+                    svg.transition()
+                        .duration(500)
+                        .call(d3.zoom().transform, transform)
+                        .on("end", function() {
+                            zoomToFitEntireTree(root, g, 0.1);
+                        });
+                }
+            } else {
+                zoomToFitEntireTree(root, g, 1);
+            }
+            updateStatusPanel();
+            var zoom = d3.zoom()
+                .scaleExtent([0.1, 3])
+                .on("zoom", function(event) {
+                    g.attr("transform", event.transform);
+                });
+            svg.call(zoom);
+            centerNodeIfNeeded(step, root, svg, containerWidth, containerHeight, zoom);
+            function alertInsertStepTreeStates() {
+                var insertSteps = @Html.Raw(JsonConvert.SerializeObject(Model.InsertSteps));
+                if (!insertSteps || insertSteps.length === 0) {
+                    alert("Քայլեր չկան։");
+                    return;
+                }
+
+                for (let i = 0; i < insertSteps.length; i++) {
+                    const step = insertSteps[i];
+                    alert(`Քայլ ${i + 1}:\n${JSON.stringify(step.TreeState, null, 2)}`);
+                }
+            }
+
+        }
+        function zoomToFitEntireTree(root, g, scale = 1) {
+            if (!root.descendants().length) return;
+            const nodes = root.descendants();
+            const minX = d3.min(nodes, d => d.x);
+            const maxX = d3.max(nodes, d => d.x);
+            const minY = d3.min(nodes, d => d.y);
+            const maxY = d3.max(nodes, d => d.y);
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const midX = (minX + maxX) / 2;
+            const midY = (minY + maxY) / 2;
+            const tx = containerWidth / 2 - midX * scale;
+            const ty = containerHeight / 2 - midY * scale;
+            svg.transition()
+                .duration(500)
+                .call(d3.zoom().transform, d3.zoomIdentity
+                    .translate(tx, ty)
+                    .scale(scale)
+                );
+        }
+        function nextStep() {
+            if (animationTimer) {
+                clearTimeout(animationTimer);
+                animationTimer = null;
+            }
+            if (isPaused) return;
+
+            if (stepIndex < insertSteps.length) {
+                const currentStep = insertSteps[stepIndex];
+                if (stepIndex < insertSteps.length - 1) {
+                    const nextStepItem = insertSteps[stepIndex + 1];
+
+                    if ((currentStep.Action === "BeforeRotateLeft" && nextStepItem.Action === "AfterRotateLeft") ||
+                        (currentStep.Action === "BeforeRotateRight" && nextStepItem.Action === "AfterRotateRight")) {
+                        renderRotationAnimation(currentStep, nextStepItem);
+                        isRotationSequence = true;
+                        stepIndex += 1;
+                        updateStatusPanel();
+                        if (stepIndex < insertSteps.length - 1 && !isPaused) {
+                            animationTimer = setTimeout(() => {
+                                isRotationSequence = false;
+                                stepIndex++;
+                                nextStep();
+                            }, 2000);
+                        }
+                        return;
+                    }
+                }
+                renderStep(currentStep);
+                stepIndex++;
+                if (stepIndex < insertSteps.length) {
+                    const delay = determineDelay(currentStep);
+                    if (!animationInProgress && !isPaused) {
+                        animationTimer = setTimeout(nextStep, delay);
+                    }
+                } else {
+                    setTimeout(() => {
+                        completeAnimation();
+                    }, 2000);
+                }
+            }
+        }
+        function determineDelay(step) {
+            let delay = 1000;
+            if (step.Action.includes("Rotate")) {
+                delay = 2000;
+            } else if (step.Action === "AddNode") {
+                delay = 1200;
+            }
+
+            return delay;
+        }
+        function completeAnimation() {
+            const statusPanel = document.getElementById("animationStatus");
+            if (statusPanel) {
+                setTimeout(() => {
+                    statusPanel.style.transition = "opacity 0.5s ease";
+                    statusPanel.style.opacity = "0";
+                    document.getElementById("prevStepBtn").disabled = false;
+                    document.getElementById("nextStepBtn").disabled = false;
+
+                    setTimeout(() => {
+                        cleanup();
+                    }, 500);
+                }, 2000);
+            } else {
+                setTimeout(() => {
+                    cleanup();
+                }, 2000);
+            }
+        }
+        function cleanup() {
+            const statusPanel = document.getElementById("animationStatus");
+            if (statusPanel) document.body.removeChild(statusPanel);
+
+            buttons.forEach(btn => btn.disabled = false);
+            if (animationTimer) clearTimeout(animationTimer);
+        }
+
+        function fixSingleChildPositions(node) {
+            if (node.children && node.children.length === 1) {
+                var child = node.children[0];
+                var offset = 50;
+                if (node.data.Left && node.data.Left.Value === child.data.Value) {
+                    shiftSubtree(child, -offset);
+                } else if (node.data.Right && node.data.Right.Value === child.data.Value) {
+                    shiftSubtree(child, offset);
+                }
+            }
+            if (node.children) {
+                node.children.forEach(fixSingleChildPositions);
+            }
+        }
+        function shiftSubtree(node, dx) {
+            node.x += dx;
+            if (node.children) {
+                node.children.forEach(child => shiftSubtree(child, dx));
+            }
+        }
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowRight') {
+                document.getElementById('nextStepBtn').click();
+            } else if (event.key === 'ArrowLeft') {
+                document.getElementById('prevStepBtn').click();
+            } else if (event.key === ' ') { 
+                document.getElementById('pauseBtn').click();
+            }
+        });
+    }
+</script>
+</body>
+</html>
